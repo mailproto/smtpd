@@ -307,9 +307,7 @@ ReadLoop:
             conn.WriteSMTP(354, "Enter message, ending with \".\" on a line by itself")
 
             if data, err := conn.ReadData(); err == nil {
-
                 if message, err := NewMessage([]byte(data)); err == nil && (conn.EndTX() == nil) {
-
                     if err := s.handleMessage(message); err == nil {
                         conn.WriteSMTP(250, fmt.Sprintf("OK : queued as %v", message.ID()))
                     } else {
