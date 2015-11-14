@@ -177,8 +177,8 @@ func (s *Server) ListenAndServe(addr string) error {
             IsTLS:        false,
             Errors:       []error{},
             MaxSize:      s.MaxSize,
-            WriteTimeout: 10,
-            ReadTimeout:  10,
+            WriteTimeout: 10 * time.Second,
+            ReadTimeout:  10 * time.Second,
         })
         clientID++
 
@@ -369,7 +369,7 @@ ReadLoop:
                 break ReadLoop
             }
 
-            tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
+            tlsConn.SetDeadline(time.Now().Add(conn.WriteTimeout))
             if err := tlsConn.Handshake(); err == nil {
                 conn = &Conn{
                     Conn:         tlsConn,

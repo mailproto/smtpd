@@ -23,8 +23,8 @@ type Conn struct {
 
 	// Configuration options
 	MaxSize      int
-	ReadTimeout  int64
-	WriteTimeout int64
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 
 	// internal state
 	lock        sync.Mutex
@@ -87,27 +87,27 @@ func (c *Conn) ReadSMTP() (string, string, error) {
 
 // ReadLine reads a single line from the client
 func (c *Conn) ReadLine() (string, error) {
-	c.SetReadDeadline(time.Now().Add(time.Duration(c.ReadTimeout) * time.Second))
+	c.SetReadDeadline(time.Now().Add(c.ReadTimeout))
 	return c.tp().ReadLine()
 }
 
 // ReadData brokers the special case of SMTP data messages
 func (c *Conn) ReadData() (string, error) {
-	c.SetReadDeadline(time.Now().Add(time.Duration(c.ReadTimeout) * time.Second))
+	c.SetReadDeadline(time.Now().Add(c.ReadTimeout))
 	lines, err := c.tp().ReadDotLines()
 	return strings.Join(lines, "\n"), err
 }
 
 // WriteSMTP writes a general SMTP line
 func (c *Conn) WriteSMTP(code int, message string) error {
-	c.SetWriteDeadline(time.Now().Add(time.Duration(c.WriteTimeout) * time.Second))
+	c.SetWriteDeadline(time.Now().Add(c.WriteTimeout))
 	_, err := c.Write([]byte(fmt.Sprintf("%v %v", code, message) + "\r\n"))
 	return err
 }
 
 // WriteEHLO writes an EHLO line, see https://tools.ietf.org/html/rfc2821#section-4.1.1.1
 func (c *Conn) WriteEHLO(message string) error {
-	c.SetWriteDeadline(time.Now().Add(time.Duration(c.WriteTimeout) * time.Second))
+	c.SetWriteDeadline(time.Now().Add(c.WriteTimeout))
 	_, err := c.Write([]byte(fmt.Sprintf("250-%v", message) + "\r\n"))
 	return err
 }
