@@ -11,12 +11,10 @@ import (
     "os"
     "strings"
     "time"
-
-    "github.com/hownowstephen/email"
 )
 
 // MessageHandler functions handle application of business logic to the inbound message
-type MessageHandler func(m *email.Message) error
+type MessageHandler func(m *Message) error
 
 type Server struct {
     Name string
@@ -57,11 +55,11 @@ type Server struct {
     Help string
 
     // Logger to print out status info
-    Logger email.Logger
+    Logger Logger
 }
 
 // NewServer creates a server with the default settings
-func NewServer(handler func(*email.Message) error) *Server {
+func NewServer(handler func(*Message) error) *Server {
     name, err := os.Hostname()
     if err != nil {
         name = "localhost"
@@ -74,7 +72,7 @@ func NewServer(handler func(*email.Message) error) *Server {
         Handler:     handler,
         Extensions:  make(map[string]Extension),
         Disabled:    make(map[string]bool),
-        Logger:      &email.QuietLogger{},
+        Logger:      &QuietLogger{},
     }
 }
 
@@ -196,7 +194,7 @@ func (s *Server) Address() string {
     return ""
 }
 
-func (s *Server) handleMessage(m *email.Message) error {
+func (s *Server) handleMessage(m *Message) error {
     return s.Handler(m)
 }
 
@@ -309,7 +307,7 @@ ReadLoop:
 
             if data, err := conn.ReadData(); err == nil {
 
-                if message, err := email.NewMessage([]byte(data)); err == nil && (conn.EndTX() == nil) {
+                if message, err := NewMessage([]byte(data)); err == nil && (conn.EndTX() == nil) {
 
                     if err := s.handleMessage(message); err == nil {
                         conn.WriteSMTP(250, fmt.Sprintf("OK : queued as %v", message.ID()))
