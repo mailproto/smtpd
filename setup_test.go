@@ -67,9 +67,10 @@ func TestingTLSConfig() *tls.Config {
 
 // WaitUntilAlive is a helper function to allow us to not start tests until a server boots
 func WaitUntilAlive(s *smtpd.Server) {
-    d, _ := time.ParseDuration("20ms")
-    for s.Address() == "" {
-        time.Sleep(d)
+    for _ = range time.Tick(time.Millisecond * 20) {
+        if s.Address() != "" {
+            break
+        }
     }
 }
 

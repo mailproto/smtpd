@@ -77,10 +77,11 @@ func NewServer(handler func(*Message) error) *Server {
 }
 
 // Close the server connection (not happy with this)
-func (s *Server) Close() {
+func (s *Server) Close() error {
     for _, listener := range s.listeners {
         listener.Close()
     }
+    return nil
 }
 
 func (s *Server) Greeting(conn *Conn) string {

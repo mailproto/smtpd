@@ -6,18 +6,37 @@ smtpd is a pure Go implementation of an SMTP server. It allows you to do things 
 package main
 
 import (
-    "github.com/mailproto/smtpd"
     "fmt"
+    "net/smtp"
+    "time"
+
+    "github.com/mailproto/smtpd"
 )
 
-func main(){
-    server := smtpd.NewServer(func(msg *smtpd.Message){
-        fmt.Println("Got message from:", msg.Sender())
-        fmt.Println(msg.Body())
+var helloWorld = `To: sender@example.org
+From: recipient@example.net
+Content-Type: text/html
+
+This is the email body`
+
+func main() {
+    var server *smtpd.Server
+    server = smtpd.NewServer(func(msg *smtpd.Message) error {
+        fmt.Println("Got message from:", msg.From)
+        fmt.Println(msg.HTML())
+        server.Close()
+        return nil
     })
 
-    server.ListenAndServe(":2525")
+    go server.ListenAndServe(":2525")
+
+    for server.Address() == "" {
+        time.Sleep(time.Second)
+    }
+
+    fmt.Println(smtp.SendMail(server.Address(), nil, "sender@example.com", []string{"recipient@example.com"}, []byte(helloWorld)))
 }
+
 ```
 
 *@todo* document
