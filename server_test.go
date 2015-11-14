@@ -5,15 +5,14 @@ import (
 	"net/smtp"
 	"testing"
 
-	"github.com/hownowstephen/email"
-	"github.com/hownowstephen/email/smtpd"
+	"github.com/mailproto/smtpd"
 )
 
 type MessageRecorder struct {
-	Messages []*email.Message
+	Messages []*smtpd.Message
 }
 
-func (m *MessageRecorder) Record(msg *email.Message) error {
+func (m *MessageRecorder) Record(msg *smtpd.Message) error {
 	m.Messages = append(m.Messages, msg)
 	return nil
 }
