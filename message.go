@@ -21,6 +21,9 @@ type Message struct {
 	Subject string
 	Body    []*Part
 	RawBody []byte
+
+	// meta info
+	Logger *log.Logger
 }
 
 // Part represents a single part of the message
@@ -94,7 +97,7 @@ func parseBody(m *mail.Message) ([]byte, []*Part, error) {
 }
 
 // NewMessage creates a Message from a data blob
-func NewMessage(data []byte) (*Message, error) {
+func NewMessage(data []byte, logger *log.Logger) (*Message, error) {
 	m, err := mail.ReadMessage(bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
@@ -124,12 +127,13 @@ func NewMessage(data []byte) (*Message, error) {
 	}
 
 	return &Message{
-		to,
-		from[0],
-		header,
-		m.Header.Get("subject"),
-		parts,
-		raw,
+		To:      to,
+		From:    from[0],
+		Headers: header,
+		Subject: m.Header.Get("subject"),
+		Body:    parts,
+		RawBody: raw,
+		Logger:  logger,
 	}, nil
 
 }
