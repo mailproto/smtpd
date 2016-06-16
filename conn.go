@@ -72,6 +72,7 @@ func (c *Conn) Reset() {
 
 // ReadSMTP pulls a single SMTP command line (ending in a carriage return + newline)
 func (c *Conn) ReadSMTP() (string, string, error) {
+	c.SetReadDeadline(time.Now().Add(c.ReadTimeout))
 	if line, err := c.tp().ReadLine(); err == nil {
 		var args string
 		command := strings.SplitN(line, " ", 2)
