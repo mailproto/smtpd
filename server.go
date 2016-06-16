@@ -340,6 +340,8 @@ ReadLoop:
 				if message, err := NewMessage([]byte(data), s.Logger); err == nil && (conn.EndTX() == nil) {
 					if err := s.handleMessage(message); err == nil {
 						conn.WriteSMTP(250, fmt.Sprintf("OK : queued as %v", message.ID()))
+					} else if serr, ok := err.(SMTPError); ok {
+						conn.WriteSMTP(serr.Code, serr.Error())
 					} else {
 						conn.WriteSMTP(554, fmt.Sprintf("Error: I blame me. %v", err))
 					}
@@ -423,7 +425,7 @@ ReadLoop:
 			} else if s.Auth != nil {
 				if err := s.Auth.Handle(conn, args); err != nil {
 					if serr, ok := err.(*SMTPError); ok {
-						conn.WriteSMTP(serr.Code(), serr.Error())
+						conn.WriteSMTP(serr.Code, serr.Error())
 					} else {
 						conn.WriteSMTP(500, "Authentication failed")
 					}
