@@ -16,6 +16,11 @@ import (
 // MessageHandler functions handle application of business logic to the inbound message
 type MessageHandler func(m *Message) error
 
+const (
+	DefaultReadTimeout  = time.Second * 10
+	DefaultWriteTimeout = time.Second * 10
+)
+
 type Server struct {
 	Name string
 
@@ -64,20 +69,7 @@ type Server struct {
 
 // NewServer creates a server with the default settings
 func NewServer(handler func(*Message) error) *Server {
-	name, err := os.Hostname()
-	if err != nil {
-		name = "localhost"
-	}
-	return &Server{
-		Name:        name,
-		ServerName:  name,
-		MaxSize:     131072,
-		MaxCommands: 100,
-		Handler:     handler,
-		Extensions:  make(map[string]Extension),
-		Disabled:    make(map[string]bool),
-		Logger:      log.New(os.Stdout, "smtpd ", 0),
-	}
+	return NewServerWithLogger(handler, log.New(os.Stdout, "smtpd ", 0))
 }
 
 // NewServerWithLogger creates a server with a customer logger
@@ -87,14 +79,16 @@ func NewServerWithLogger(handler func(*Message) error, logger *log.Logger) *Serv
 		name = "localhost"
 	}
 	return &Server{
-		Name:        name,
-		ServerName:  name,
-		MaxSize:     131072,
-		MaxCommands: 100,
-		Handler:     handler,
-		Extensions:  make(map[string]Extension),
-		Disabled:    make(map[string]bool),
-		Logger:      logger,
+		Name:         name,
+		ServerName:   name,
+		MaxSize:      131072,
+		MaxCommands:  100,
+		Handler:      handler,
+		Extensions:   make(map[string]Extension),
+		Disabled:     make(map[string]bool),
+		Logger:       logger,
+		ReadTimeout:  DefaultReadTimeout,
+		WriteTimeout: DefaultWriteTimeout,
 	}
 }
 
@@ -106,10 +100,12 @@ func (s *Server) Close() error {
 	return nil
 }
 
+// Greeting is a humanized response to EHLO to precede the list of available commands
 func (s *Server) Greeting(conn *Conn) string {
 	return fmt.Sprintf("Welcome! [%v]", conn.LocalAddr())
 }
 
+// Extend the server to handle the supplied verb
 func (s *Server) Extend(verb string, extension Extension) error {
 	if _, ok := s.Extensions[verb]; ok {
 		return fmt.Errorf("Extension for %v has already been registered", verb)
@@ -195,14 +191,20 @@ func (s *Server) ListenAndServe(addr string) error {
 			log.Println("Could not handle request:", err)
 			continue
 		}
-		go s.HandleSMTP(&Conn{
+
+		c := &Conn{
 			Conn:         conn,
 			IsTLS:        false,
 			Errors:       []error{},
 			MaxSize:      s.MaxSize,
-			WriteTimeout: 10 * time.Second,
-			ReadTimeout:  10 * time.Second,
-		})
+			ReadTimeout:  s.ReadTimeout,
+			WriteTimeout: s.WriteTimeout,
+		}
+
+		c.SetReadDeadline(time.Now().Add(s.ReadTimeout))
+		c.SetWriteDeadline(time.Now().Add(s.WriteTimeout))
+
+		go s.HandleSMTP(c)
 		clientID++
 
 	}
@@ -210,6 +212,8 @@ func (s *Server) ListenAndServe(addr string) error {
 
 }
 
+// Address retrieves the address of the server
+// TODO: this assumes a single listener, and that's a bad idea
 func (s *Server) Address() string {
 	if len(s.listeners) > 0 {
 		return s.listeners[0].Addr().String()
@@ -221,16 +225,13 @@ func (s *Server) handleMessage(m *Message) error {
 	return s.Handler(m)
 }
 
+// HandleSMTP handles a single SMTP request
 func (s *Server) HandleSMTP(conn *Conn) error {
 	defer conn.Close()
 	conn.WriteSMTP(220, fmt.Sprintf("%v %v", s.Name, time.Now().Format(time.RFC1123Z)))
 
 ReadLoop:
 	for i := 0; i < s.MaxCommands; i++ {
-
-		if s.ReadTimeout > 0 {
-			conn.SetReadDeadline(time.Now().Add(s.ReadTimeout))
-		}
 
 		var verb, args string
 		var err error
@@ -247,10 +248,6 @@ ReadLoop:
 			}
 
 			return err
-		}
-
-		if s.WriteTimeout > 0 {
-			conn.SetWriteDeadline(time.Now().Add(s.WriteTimeout))
 		}
 
 		// Always check for disabled features first
@@ -400,7 +397,7 @@ ReadLoop:
 				break ReadLoop
 			}
 
-			tlsConn.SetDeadline(time.Now().Add(conn.WriteTimeout))
+			tlsConn.SetDeadline(time.Now().Add(s.WriteTimeout))
 			if err := tlsConn.Handshake(); err == nil {
 				conn = &Conn{
 					Conn:         tlsConn,
@@ -408,8 +405,8 @@ ReadLoop:
 					User:         conn.User,
 					Errors:       conn.Errors,
 					MaxSize:      conn.MaxSize,
-					WriteTimeout: conn.WriteTimeout,
-					ReadTimeout:  conn.ReadTimeout,
+					ReadTimeout:  s.ReadTimeout,
+					WriteTimeout: s.WriteTimeout,
 				}
 			} else {
 				s.Logger.Printf("Could not TLS handshake:%v", err)
@@ -450,6 +447,8 @@ ReadLoop:
 	return nil
 }
 
+// GetAddressArg extracts the address value from a supplied SMTP argument
+// for handling MAIL FROM:address@example.com and RCPT TO:address@example.com
 func (s *Server) GetAddressArg(argName string, args string) (*mail.Address, error) {
 	argSplit := strings.SplitN(args, ":", 2)
 	if len(argSplit) == 2 && strings.ToUpper(argSplit[0]) == argName {

@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+// Conn is a wrapper for net.Conn that provides
+// convenience handlers for SMTP requests
 type Conn struct {
 	// Conn is primarily a wrapper around a net.Conn object
 	net.Conn

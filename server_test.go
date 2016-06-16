@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/smtp"
 	"testing"
+	"time"
 
 	"github.com/mailproto/smtpd"
 )
@@ -62,6 +63,36 @@ This is the email body`)
 	err = c.Quit()
 	if err != nil {
 		t.Errorf("Server wouldn't accept QUIT: %v", err)
+	}
+
+}
+
+func TestSMTPServerTimeout(t *testing.T) {
+
+	recorder := &MessageRecorder{}
+	server := smtpd.NewServer(recorder.Record)
+
+	// Set some really short timeouts
+	server.ReadTimeout = time.Millisecond * 1
+	server.WriteTimeout = time.Millisecond * 1
+
+	go server.ListenAndServe("localhost:0")
+	defer server.Close()
+
+	WaitUntilAlive(server)
+
+	// Connect to the remote SMTP server.
+	c, err := smtp.Dial(server.Address())
+	if err != nil {
+		t.Errorf("Should be able to dial localhost: %v", err)
+	}
+
+	// Sleep for twice the timeout
+	time.Sleep(time.Millisecond * 20)
+
+	// Set the sender and recipient first
+	if err := c.Hello("sender@example.org"); err == nil {
+		t.Errorf("Should have gotten a timeout from the upstream server")
 	}
 
 }
