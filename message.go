@@ -106,7 +106,7 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 			// XXX: LimitReader?
 			slurp, err := ioutil.ReadAll(p)
 			if err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 			multi := &Part{part: p, Body: slurp}
 
@@ -123,7 +123,7 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 		// XXX: LimitReader?
 		slurp, err := ioutil.ReadAll(content)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 
 		parts = append(parts, &Part{
