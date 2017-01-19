@@ -10,13 +10,58 @@ import (
 )
 
 const (
-	multipartEmail = `From: Sender <sender@example.com>
+	plainHTMLEmail = `From: Sender <sender@example.com>
+Date: Mon, 16 Jan 2017 16:59:33 -0500
+Subject: Multipart Message
+MIME-Version: 1.0
+Content-Type: text/html
+To: recipient1@example.com, "Recipient 2" <recipient2@example.com>
+Message-ID: <examplemessage@example.com>
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html>
+<html>
+  <body>
+    Sending bees<br><br>=F0=9F=90=9D
+  </body>
+</html>`
+
+	alternativeEmail = `From: Sender <sender@example.com>
+Date: Mon, 16 Jan 2017 16:59:33 -0500
+Subject: Multipart Message
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ 	 boundary="_=test=_bbd1e98aa6c34ef59d8d102a0e795027"
+To: recipient1@example.com, "Recipient 2" <recipient2@example.com>
+Message-ID: <examplemessage@example.com>
+
+--_=test=_bbd1e98aa6c34ef59d8d102a0e795027
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Sending bees
+
+=F0=9F=90=9D
+
+--_=test=_bbd1e98aa6c34ef59d8d102a0e795027
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html>
+<html>
+  <body>
+    Sending bees<br><br>=F0=9F=90=9D
+  </body>
+</html>
+
+--_=test=_bbd1e98aa6c34ef59d8d102a0e795027--
+`
+	emailWithAttachment = `From: Sender <sender@example.com>
 Date: Mon, 16 Jan 2017 16:59:33 -0500
 Subject: Multipart Message
 MIME-Version: 1.0
 Content-Type: multipart/mixed;
  	 boundary="_=test=_bbd1e98aa6c34ef59d8d102a0e795027"
-Feedback-ID: 2575071:54973::postmark
 To: recipient1@example.com, "Recipient 2" <recipient2@example.com>
 Message-ID: <examplemessage@example.com>
 
@@ -52,9 +97,117 @@ QkVHSU46VkNBTEVOREFSClZFUlNJT046Mi4wClBST0RJRDotLy9tYWlscHJvdG8vL01haWxQcm90bwpD
 --_=test=_bbd1e98aa6c34ef59d8d102a0e795027--`
 )
 
-func TestMessageParsing(t *testing.T) {
+func TestPlainHTMLParsing(t *testing.T) {
+	msg, err := smtpd.NewMessage([]byte(plainHTMLEmail), nil)
 
-	msg, err := smtpd.NewMessage([]byte(multipartEmail), nil)
+	if err != nil {
+		t.Error("error creating message", err)
+		return
+	}
+
+	expectTo := []mail.Address{
+		{
+			Name:    "",
+			Address: "recipient1@example.com",
+		},
+		{
+			Name:    "Recipient 2",
+			Address: "recipient2@example.com",
+		},
+	}
+
+	if len(msg.To) < len(expectTo) {
+		t.Errorf("Not enough recipients, want: %v, got: %v", len(expectTo), len(msg.To))
+
+	}
+
+	for i, expect := range expectTo {
+		if i >= len(msg.To) {
+			break
+		}
+		if msg.To[i].Address != expect.Address || msg.To[i].Name != expect.Name {
+			t.Errorf("Wrong recipient %v want: %v, got: %v", i, expect, msg.To[i])
+		}
+	}
+
+	expectHTML := `<!DOCTYPE html>
+<html>
+  <body>
+    Sending bees<br><br>🐝
+  </body>
+</html>`
+
+	if html, err := msg.HTML(); err != nil {
+		t.Error(err)
+	} else if strings.TrimSpace(string(html)) != expectHTML {
+		t.Errorf("Wrong HTML content, want: %v, got: %v", expectHTML, strings.TrimSpace(string(html)))
+	}
+
+	if plain, err := msg.Plain(); err == nil {
+		t.Error("Expected plaintext version to be missing, got:", plain)
+	}
+}
+
+func TestAlternativeMessageParsing(t *testing.T) {
+	msg, err := smtpd.NewMessage([]byte(alternativeEmail), nil)
+
+	if err != nil {
+		t.Error("error creating message", err)
+		return
+	}
+
+	expectTo := []mail.Address{
+		{
+			Name:    "",
+			Address: "recipient1@example.com",
+		},
+		{
+			Name:    "Recipient 2",
+			Address: "recipient2@example.com",
+		},
+	}
+
+	if len(msg.To) < len(expectTo) {
+		t.Errorf("Not enough recipients, want: %v, got: %v", len(expectTo), len(msg.To))
+
+	}
+
+	for i, expect := range expectTo {
+		if i >= len(msg.To) {
+			break
+		}
+		if msg.To[i].Address != expect.Address || msg.To[i].Name != expect.Name {
+			t.Errorf("Wrong recipient %v want: %v, got: %v", i, expect, msg.To[i])
+		}
+	}
+
+	expectHTML := `<!DOCTYPE html>
+<html>
+  <body>
+    Sending bees<br><br>🐝
+  </body>
+</html>`
+
+	if html, err := msg.HTML(); err != nil {
+		t.Error(err)
+	} else if strings.TrimSpace(string(html)) != expectHTML {
+		t.Errorf("Wrong HTML content, want: %v, got: %v", expectHTML, strings.TrimSpace(string(html)))
+	}
+
+	expectPlain := `Sending bees
+
+🐝`
+
+	if plain, err := msg.Plain(); err != nil {
+		t.Error(err)
+	} else if strings.TrimSpace(string(plain)) != expectPlain {
+		t.Errorf("Wrong Plaintext content, want: %v, got: %v", expectPlain, strings.TrimSpace(string(plain)))
+	}
+}
+
+func TestMixedMessageParsing(t *testing.T) {
+
+	msg, err := smtpd.NewMessage([]byte(emailWithAttachment), nil)
 
 	if err != nil {
 		t.Error("error creating message", err)

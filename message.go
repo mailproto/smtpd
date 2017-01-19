@@ -8,6 +8,7 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
 	"net/textproto"
 	"strings"
@@ -16,12 +17,14 @@ import (
 // Message is a nicely packaged representation of the
 // recieved message
 type Message struct {
-	To      []*mail.Address
-	From    *mail.Address
-	Headers map[string]string
-	Subject string
-	Body    []*Part
-	RawBody []byte
+	To   []*mail.Address
+	From *mail.Address
+	// XXX: unify these
+	Headers    map[string]string
+	mimeHeader textproto.MIMEHeader
+	Subject    string
+	Body       []*Part
+	RawBody    []byte
 
 	// meta info
 	Logger *log.Logger
@@ -58,24 +61,36 @@ func findTypeInParts(contentType string, parts []*Part) *Part {
 	return nil
 }
 
-// FindByType finds the first part of the message with the specified Content-Type
+// FindBody finds the first part of the message with the specified Content-Type
 func (m *Message) FindBody(contentType string) ([]byte, error) {
 
-	// XXX: this is awful and can be done much better
-	var alternative *Part
-	if mixed := findTypeInParts("multipart/mixed", m.Body); mixed != nil {
-		alternative = findTypeInParts("multipart/alternative", []*Part{mixed})
-	} else {
-		alternative = findTypeInParts("multipart/alternative", m.Body)
+	mediaType, _, err := mime.ParseMediaType(m.mimeHeader.Get("Content-Type"))
+	if err != nil {
+		return nil, err
 	}
 
-	if alternative == nil {
-		return nil, fmt.Errorf("No %v content found", contentType)
+	var alternatives []*Part
+	switch mediaType {
+	case contentType:
+		if len(m.Body) > 0 {
+			return m.Body[0].Body, nil
+		}
+		return nil, fmt.Errorf("%v found, but no data in body", contentType)
+	case "multipart/alternative":
+		alternatives = m.Body
+	default:
+		if alt := findTypeInParts("multipart/alternative", m.Body); alt != nil {
+			alternatives = alt.Children
+		}
 	}
 
-	part := findTypeInParts(contentType, alternative.Children)
+	if len(alternatives) == 0 {
+		return nil, fmt.Errorf("No multipart/alternative section found, can't find %v", contentType)
+	}
+
+	part := findTypeInParts(contentType, alternatives)
 	if part == nil {
-		return nil, fmt.Errorf("No %v content found", contentType)
+		return nil, fmt.Errorf("No %v content found in multipart/alternative section", contentType)
 	}
 
 	return part.Body, nil
@@ -85,6 +100,7 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 
 	mediaType, params, err := mime.ParseMediaType(header.Get("Content-Type"))
 	if err != nil && err.Error() == "mime: no media type" {
+		// XXX: octet-stream
 		mediaType = "text/plain"
 	} else if err != nil {
 		return nil, fmt.Errorf("Media Type error: %v", err)
@@ -120,6 +136,11 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 
 		}
 	} else {
+
+		if header.Get("Content-Transfer-Encoding") == "quoted-printable" {
+			content = quotedprintable.NewReader(content)
+		}
+
 		// XXX: LimitReader?
 		slurp, err := ioutil.ReadAll(content)
 		if err != nil {
@@ -186,13 +207,14 @@ func NewMessage(data []byte, logger *log.Logger) (*Message, error) {
 	}
 
 	return &Message{
-		To:      to,
-		From:    from[0],
-		Headers: header,
-		Subject: m.Header.Get("subject"),
-		Body:    parts,
-		RawBody: raw,
-		Logger:  logger,
+		To:         to,
+		From:       from[0],
+		Headers:    header,
+		mimeHeader: textproto.MIMEHeader(m.Header),
+		Subject:    m.Header.Get("subject"),
+		Body:       parts,
+		RawBody:    raw,
+		Logger:     logger,
 	}, nil
 
 }
