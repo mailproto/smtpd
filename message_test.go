@@ -1,6 +1,7 @@
 package smtpd_test
 
 import (
+	"mime"
 	"strings"
 	"testing"
 
@@ -263,5 +264,41 @@ func TestMixedMessageParsing(t *testing.T) {
 	}
 
 	// TODO: check rest of parse proceeded as expected
+	var attachments []*smtpd.Part
+	if attachments, err = msg.Attachments(); err != nil {
+		t.Error("couldn't load attachments", err)
+	}
+
+	if len(attachments) != 1 {
+		t.Errorf("want one attachment, got: %v", len(attachments))
+	}
+
+	mimeType, _, err := mime.ParseMediaType(attachments[0].Header.Get("Content-Type"))
+	if err != nil {
+		t.Error("Error parsing attachment MIME header:", err)
+	}
+
+	if mimeType != "text/calendar" {
+		t.Errorf("Expected text/calendar attachment, got: %v", mimeType)
+	}
+
+	expectVCal := `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//mailproto//MailProto
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTAMP:20170116T154000
+UID:mycoolevent@mailproto
+
+DTSTART;TZID="America/New_York":20170118T110000
+DTEND;TZID="America/New_York":20170118T120000
+SUMMARY:Send an email
+LOCATION:Test
+END:VEVENT
+END:VCALENDAR`
+
+	if string(attachments[0].Body) != expectVCal {
+		t.Errorf("Wrong attachment, wanted: %v got: %v", expectVCal, string(attachments[0].Body))
+	}
 
 }

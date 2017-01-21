@@ -2,29 +2,42 @@ package smtpd
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
 	"net/mail"
 	"net/textproto"
 	"strings"
+	"sync"
+	"time"
+)
+
+const idEntropy = 64
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const (
+	letterIdxBits = 6                    // 6 bits to represent a letter index
+	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
+	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
 )
 
 // Message is a nicely packaged representation of the
 // recieved message
 type Message struct {
-	To   []*mail.Address
-	From *mail.Address
-	// XXX: unify these
-	Headers    map[string]string
-	mimeHeader textproto.MIMEHeader
-	Subject    string
-	Body       []*Part
-	RawBody    []byte
+	To      []*mail.Address
+	From    *mail.Address
+	Header  mail.Header
+	Subject string
+	Body    []*Part
+	RawBody []byte
+
+	messageID    string
+	genMessageID sync.Once
 
 	// meta info
 	Logger *log.Logger
@@ -32,13 +45,38 @@ type Message struct {
 
 // Part represents a single part of the message
 type Part struct {
+	Header   textproto.MIMEHeader
 	part     *multipart.Part
 	Body     []byte
 	Children []*Part
 }
 
+// ID returns an identifier for this message, or generates one if none available using the masked string
+// algorithm from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
 func (m *Message) ID() string {
-	return "not-implemented"
+	m.genMessageID.Do(func() {
+		if m.messageID = m.Header.Get("Message-ID"); m.messageID != "" {
+			return
+		}
+		var src = rand.NewSource(time.Now().UnixNano())
+
+		b := make([]byte, idEntropy)
+		// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
+		for i, cache, remain := idEntropy-1, src.Int63(), letterIdxMax; i >= 0; {
+			if remain == 0 {
+				cache, remain = src.Int63(), letterIdxMax
+			}
+			if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+				b[i] = letterBytes[idx]
+				i--
+			}
+			cache >>= letterIdxBits
+			remain--
+		}
+
+		m.messageID = string(b)
+	})
+	return m.messageID
 }
 
 // Plain returns the text/plain content of the message, if any
@@ -53,7 +91,7 @@ func (m *Message) HTML() ([]byte, error) {
 
 func findTypeInParts(contentType string, parts []*Part) *Part {
 	for _, p := range parts {
-		mediaType, _, err := mime.ParseMediaType(p.part.Header.Get("Content-Type"))
+		mediaType, _, err := mime.ParseMediaType(p.Header.Get("Content-Type"))
 		if err == nil && mediaType == contentType {
 			return p
 		}
@@ -61,10 +99,36 @@ func findTypeInParts(contentType string, parts []*Part) *Part {
 	return nil
 }
 
+// Attachments returns the list of attachments on this message
+// XXX: this assumes that the only mimetype supporting attachments is multipart/mixed
+// need to review https://en.wikipedia.org/wiki/MIME#Multipart_messages to ensure that is the case
+func (m *Message) Attachments() ([]*Part, error) {
+	mediaType, _, err := mime.ParseMediaType(m.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+
+	var attachments []*Part
+	if mediaType == "multipart/mixed" {
+		for _, part := range m.Body {
+			mediaType, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			if err != nil {
+				return nil, err
+			}
+			if strings.HasPrefix(mediaType, "multipart/") {
+				// XXX: any cases where this would still be an attachment?
+				continue
+			}
+			attachments = append(attachments, part)
+		}
+	}
+	return attachments, nil
+}
+
 // FindBody finds the first part of the message with the specified Content-Type
 func (m *Message) FindBody(contentType string) ([]byte, error) {
 
-	mediaType, _, err := mime.ParseMediaType(m.mimeHeader.Get("Content-Type"))
+	mediaType, _, err := mime.ParseMediaType(m.Header.Get("Content-Type"))
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +160,38 @@ func (m *Message) FindBody(contentType string) ([]byte, error) {
 	return part.Body, nil
 }
 
+func readToPart(header textproto.MIMEHeader, content io.Reader) (*Part, error) {
+	cte := strings.ToLower(header.Get("Content-Transfer-Encoding"))
+
+	if cte == "quoted-printable" {
+		content = quotedprintable.NewReader(content)
+	}
+
+	slurp, err := ioutil.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
+
+	if cte == "base64" {
+		dst := make([]byte, base64.StdEncoding.DecodedLen(len(slurp)))
+		decodedLen, err := base64.StdEncoding.Decode(dst, slurp)
+		if err != nil {
+			return nil, err
+		}
+
+		slurp = dst[:decodedLen]
+	}
+	return &Part{
+		Header: header,
+		Body:   slurp,
+	}, nil
+}
+
 func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, error) {
 
 	mediaType, params, err := mime.ParseMediaType(header.Get("Content-Type"))
 	if err != nil && err.Error() == "mime: no media type" {
-		// XXX: octet-stream
-		mediaType = "text/plain"
+		mediaType = "application/octet-stream"
 	} else if err != nil {
 		return nil, fmt.Errorf("Media Type error: %v", err)
 	}
@@ -119,40 +209,29 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 				return nil, fmt.Errorf("MIME error: %v", err)
 			}
 
-			// XXX: LimitReader?
-			slurp, err := ioutil.ReadAll(p)
+			part, err := readToPart(p.Header, p)
+
+			// XXX: maybe want to implement a less strict mode that gets what it can out of the message
+			// instead of erroring out on individual sections?
+			partType, _, err := mime.ParseMediaType(p.Header.Get("Content-Type"))
 			if err != nil {
 				return nil, err
 			}
-			multi := &Part{part: p, Body: slurp}
-
-			subParts, err := parseContent(p.Header, bytes.NewBuffer(slurp))
-			if err != nil {
-				return nil, err
+			if strings.HasPrefix(partType, "multipart/") {
+				subParts, err := parseContent(p.Header, bytes.NewBuffer(part.Body))
+				if err != nil {
+					return nil, err
+				}
+				part.Children = subParts
 			}
-
-			multi.Children = subParts
-			parts = append(parts, multi)
-
+			parts = append(parts, part)
 		}
 	} else {
-
-		if header.Get("Content-Transfer-Encoding") == "quoted-printable" {
-			content = quotedprintable.NewReader(content)
-		}
-
-		// XXX: LimitReader?
-		slurp, err := ioutil.ReadAll(content)
+		part, err := readToPart(header, content)
 		if err != nil {
 			return nil, err
 		}
-
-		parts = append(parts, &Part{
-			part: &multipart.Part{
-				Header: header,
-			},
-			Body: slurp,
-		})
+		parts = append(parts, part)
 	}
 
 	return parts, nil
@@ -161,7 +240,6 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 // parseBody unwraps the body io.Reader into a set of *Part structs
 func parseBody(m *mail.Message) ([]byte, []*Part, error) {
 
-	// XXX: LimitReader?
 	mbody, err := ioutil.ReadAll(m.Body)
 	if err != nil {
 		return []byte{}, []*Part{}, err
@@ -207,14 +285,13 @@ func NewMessage(data []byte, logger *log.Logger) (*Message, error) {
 	}
 
 	return &Message{
-		To:         to,
-		From:       from[0],
-		Headers:    header,
-		mimeHeader: textproto.MIMEHeader(m.Header),
-		Subject:    m.Header.Get("subject"),
-		Body:       parts,
-		RawBody:    raw,
-		Logger:     logger,
+		To:      to,
+		From:    from[0],
+		Header:  m.Header,
+		Subject: m.Header.Get("subject"),
+		Body:    parts,
+		RawBody: raw,
+		Logger:  logger,
 	}, nil
 
 }

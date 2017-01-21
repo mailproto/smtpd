@@ -29,7 +29,7 @@ type Server struct {
 
 	// MaxSize of incoming message objects, zero for no cap otherwise
 	// larger messages are thrown away
-	MaxSize int
+	MaxSize int64
 
 	// MaxConn limits the number of concurrent connections being handled
 	MaxConn int

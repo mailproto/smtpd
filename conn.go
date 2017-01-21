@@ -1,7 +1,9 @@
 package smtpd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"net/mail"
 	"net/textproto"
@@ -24,7 +26,7 @@ type Conn struct {
 	ToAddr   []*mail.Address
 
 	// Configuration options
-	MaxSize      int
+	MaxSize      int64
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 
@@ -40,6 +42,9 @@ type Conn struct {
 func (c *Conn) tp() *textproto.Conn {
 	c.asTextProto.Do(func() {
 		c.textProto = textproto.NewConn(c)
+		if c.MaxSize > 0 {
+			c.textProto.Reader = *textproto.NewReader(bufio.NewReader(io.LimitReader(c, c.MaxSize)))
+		}
 	})
 	return c.textProto
 }
