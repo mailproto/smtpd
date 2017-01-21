@@ -28,11 +28,7 @@ func main() {
     })
 
     go server.ListenAndServe(":2525")
-
-    // XXX: Wait for server startup
-    for server.Address() == "" {
-        time.Sleep(time.Second)
-    }
+    <-server.Ready
 
     fmt.Println(smtp.SendMail(server.Address(), nil, "sender@example.com", []string{"recipient@example.com"}, []byte(helloWorld)))
 }
