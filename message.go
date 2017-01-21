@@ -38,6 +38,7 @@ type Message struct {
 
 	messageID    string
 	genMessageID sync.Once
+	rcpt         []*mail.Address
 
 	// meta info
 	Logger *log.Logger
@@ -77,6 +78,24 @@ func (m *Message) ID() string {
 		m.messageID = string(b)
 	})
 	return m.messageID
+}
+
+// BCC returns a list of addresses this message should be
+func (m *Message) BCC() []*mail.Address {
+
+	var inHeaders = make(map[string]struct{})
+	for _, to := range m.To {
+		inHeaders[to.Address] = struct{}{}
+	}
+
+	var bcc []*mail.Address
+	for _, recipient := range m.rcpt {
+		if _, ok := inHeaders[recipient.Address]; !ok {
+			bcc = append(bcc, recipient)
+		}
+	}
+
+	return bcc
 }
 
 // Plain returns the text/plain content of the message, if any
@@ -254,19 +273,20 @@ func parseBody(m *mail.Message) ([]byte, []*Part, error) {
 	return mbody, parts, nil
 }
 
-// NewMessage creates a Message from a data blob
-func NewMessage(data []byte, logger *log.Logger) (*Message, error) {
+// NewMessage creates a Message from a data blob and a recipients list
+func NewMessage(data []byte, rcpt []*mail.Address, logger *log.Logger) (*Message, error) {
 	m, err := mail.ReadMessage(bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
 
-	to, err := m.Header.AddressList("to")
+	// TODO: This isn't accurate, the To field should be all the values from RCPT TO:
+	to, err := m.Header.AddressList("To")
 	if err != nil {
 		return nil, err
 	}
 
-	from, err := m.Header.AddressList("from")
+	from, err := m.Header.AddressList("From")
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +305,7 @@ func NewMessage(data []byte, logger *log.Logger) (*Message, error) {
 	}
 
 	return &Message{
+		rcpt:    rcpt,
 		To:      to,
 		From:    from[0],
 		Header:  m.Header,

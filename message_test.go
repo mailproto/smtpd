@@ -99,7 +99,7 @@ QkVHSU46VkNBTEVOREFSClZFUlNJT046Mi4wClBST0RJRDotLy9tYWlscHJvdG8vL01haWxQcm90bwpD
 )
 
 func TestPlainHTMLParsing(t *testing.T) {
-	msg, err := smtpd.NewMessage([]byte(plainHTMLEmail), nil)
+	msg, err := smtpd.NewMessage([]byte(plainHTMLEmail), nil, nil)
 
 	if err != nil {
 		t.Error("error creating message", err)
@@ -150,7 +150,7 @@ func TestPlainHTMLParsing(t *testing.T) {
 }
 
 func TestAlternativeMessageParsing(t *testing.T) {
-	msg, err := smtpd.NewMessage([]byte(alternativeEmail), nil)
+	msg, err := smtpd.NewMessage([]byte(alternativeEmail), nil, nil)
 
 	if err != nil {
 		t.Error("error creating message", err)
@@ -208,7 +208,7 @@ func TestAlternativeMessageParsing(t *testing.T) {
 
 func TestMixedMessageParsing(t *testing.T) {
 
-	msg, err := smtpd.NewMessage([]byte(emailWithAttachment), nil)
+	msg, err := smtpd.NewMessage([]byte(emailWithAttachment), nil, nil)
 
 	if err != nil {
 		t.Error("error creating message", err)

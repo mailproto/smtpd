@@ -41,28 +41,55 @@ func TestSMTPServer(t *testing.T) {
 		t.Errorf("Should be able to set a RCPT: %v", err)
 	}
 
+	if err := c.Rcpt("bcc@example.net"); err != nil {
+		t.Errorf("Should be able to set a second RCPT: %v", err)
+	}
+
 	// Send the email body.
 	wc, err := c.Data()
 	if err != nil {
 		t.Errorf("Error creating the data body: %v", err)
 	}
-	_, err = fmt.Fprintf(wc, `To: sender@example.org
-From: recipient@example.net
+
+	var emailBody = "This is the email body"
+
+	_, err = fmt.Fprintf(wc, `From: sender@example.org
+To: recipient@example.net
 Content-Type: text/html
 
-This is the email body`)
+%v`, emailBody)
 	if err != nil {
 		t.Errorf("Error writing email: %v", err)
 	}
-	err = wc.Close()
-	if err != nil {
+
+	if err := wc.Close(); err != nil {
 		t.Error(err)
 	}
 
 	// Send the QUIT command and close the connection.
-	err = c.Quit()
-	if err != nil {
+	if err := c.Quit(); err != nil {
 		t.Errorf("Server wouldn't accept QUIT: %v", err)
+	}
+
+	if len(recorder.Messages) != 1 {
+		t.Fatalf("Expected 1 message, got: %v", len(recorder.Messages))
+	}
+
+	if h, err := recorder.Messages[0].HTML(); err == nil {
+		if string(h) != emailBody {
+			t.Errorf("Wrong body - want: %v, got: %v", emailBody, string(h))
+		}
+	} else {
+		t.Fatalf("Error getting HTML body: %v", err)
+	}
+
+	bcc := recorder.Messages[0].BCC()
+	if len(bcc) != 1 {
+		t.Fatalf("Expected 1 BCC, got: %v", len(bcc))
+	}
+
+	if bcc[0].Address != "bcc@example.net" {
+		t.Errorf("wrong BCC value, want: bcc@example.net, got: %v", bcc[0].Address)
 	}
 
 }
