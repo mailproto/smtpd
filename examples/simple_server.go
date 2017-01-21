@@ -1,13 +1,9 @@
-[![Build Status](https://drone.io/github.com/mailproto/smtpd/status.png)](https://drone.io/github.com/mailproto/smtpd/latest)
-# smtpd
-smtpd is a pure Go implementation of an SMTP server. It allows you to do things like:
-
-```go
 package main
 
 import (
     "fmt"
     "net/smtp"
+    "log"
 
     "github.com/mailproto/smtpd"
 )
@@ -31,10 +27,5 @@ func main() {
 
     log.Fatal(smtp.SendMail(server.Address(), nil, "sender@example.com", []string{"recipient@example.com"}, []byte(helloWorld)))
 }
-
-
-```
-
-*@todo* document
 
 
