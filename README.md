@@ -1,4 +1,4 @@
-[![Build Status](https://drone.io/github.com/mailproto/smtpd/status.png)](https://drone.io/github.com/mailproto/smtpd/latest)
+[![Build Status](https://travis-ci.org/mailproto/smtpd.svg?branch=master)](https://travis-ci.org/mailproto/smtpd)
 # smtpd
 smtpd is a pure Go implementation of an SMTP server. It allows you to do things like:
 
