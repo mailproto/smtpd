@@ -16,11 +16,15 @@ import (
 // MessageHandler functions handle application of business logic to the inbound message
 type MessageHandler func(m *Message) error
 
+// Default values
 const (
-	DefaultReadTimeout  = time.Second * 10
-	DefaultWriteTimeout = time.Second * 10
+	DefaultReadTimeout        = time.Second * 10
+	DefaultWriteTimeout       = time.Second * 10
+	DefaultMessageSizeMax     = 131072
+	DefaultSessionCommandsMax = 100
 )
 
+// Server is an RFC2821/5321 compatible SMTP server
 type Server struct {
 	Name string
 
@@ -39,6 +43,7 @@ type Server struct {
 	MaxCommands int
 
 	// RateLimiter gets called before proceeding through to message handling
+	// TODO: Implement
 	RateLimiter func(*Conn) bool
 
 	// Handler is the handoff function for messages
@@ -53,18 +58,22 @@ type Server struct {
 	// Disabled features
 	Disabled map[string]bool
 
-	// Server flags
-	listeners []net.Listener
+	// Server meta
+	listener *net.Listener
 
 	// help message to display in response to a HELP request
 	Help string
 
 	// Logger to print out status info
+	// TODO: implement better logging with configurable verbosity
 	Logger *log.Logger
 
 	// Timeout handlers
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+
+	// Ready is a channel that will receive a single `true` when the server has started
+	Ready chan bool
 }
 
 // NewServer creates a server with the default settings
@@ -81,23 +90,21 @@ func NewServerWithLogger(handler func(*Message) error, logger *log.Logger) *Serv
 	return &Server{
 		Name:         name,
 		ServerName:   name,
-		MaxSize:      131072,
-		MaxCommands:  100,
+		MaxSize:      DefaultMessageSizeMax,
+		MaxCommands:  DefaultSessionCommandsMax,
 		Handler:      handler,
 		Extensions:   make(map[string]Extension),
 		Disabled:     make(map[string]bool),
 		Logger:       logger,
 		ReadTimeout:  DefaultReadTimeout,
 		WriteTimeout: DefaultWriteTimeout,
+		Ready:        make(chan bool, 1),
 	}
 }
 
-// Close the server connection (not happy with this)
+// Close the server connection
 func (s *Server) Close() error {
-	for _, listener := range s.listeners {
-		listener.Close()
-	}
-	return nil
+	return (*s.listener).Close()
 }
 
 // Greeting is a humanized response to EHLO to precede the list of available commands
@@ -161,21 +168,30 @@ func (s *Server) SetHelp(message string) error {
 // ListenAndServe starts listening for SMTP commands at the supplied TCP address
 func (s *Server) ListenAndServe(addr string) error {
 
+	if s.listener != nil {
+		return ErrAlreadyRunning
+	}
+
+	// close the Ready channel on exit
+	defer func() {
+		close(s.Ready)
+	}()
+
 	// Start listening for SMTP connections
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		s.Logger.Printf("Cannot listen on %v (%v)", addr, err)
 		return err
 	}
+	s.Ready <- true
 
-	var clientID int64
-	clientID = 1
+	var clientID int64 = 1
 
-	s.listeners = append(s.listeners, listener)
+	s.listener = &listener
 
 	// @TODO maintain a fixed-size connection pool, throw immediate 554s otherwise
 	// see http://www.greenend.org.uk/rjk/tech/smtpreplies.html
-	// https://blog.golang.org/context?
+	// maybe also pass around a context? https://blog.golang.org/context
 	for {
 
 		conn, err := listener.Accept()
@@ -193,7 +209,8 @@ func (s *Server) ListenAndServe(addr string) error {
 		}
 
 		c := &Conn{
-			Conn:         conn,
+			Conn: conn,
+			// TODO: implement ListenAndServeSSL for :465 servers
 			IsTLS:        false,
 			Errors:       []error{},
 			MaxSize:      s.MaxSize,
@@ -208,15 +225,12 @@ func (s *Server) ListenAndServe(addr string) error {
 		clientID++
 
 	}
-	return nil
-
 }
 
 // Address retrieves the address of the server
-// TODO: this assumes a single listener, and that's a bad idea
 func (s *Server) Address() string {
-	if len(s.listeners) > 0 {
-		return s.listeners[0].Addr().String()
+	if s.listener != nil {
+		return (*s.listener).Addr().String()
 	}
 	return ""
 }
@@ -323,6 +337,7 @@ ReadLoop:
 			}
 		// https://tools.ietf.org/html/rfc2821#section-4.1.1.3
 		case "RCPT":
+			// TODO: bubble these up to the message,
 			if to, err := s.GetAddressArg("TO", args); err == nil {
 				conn.ToAddr = append(conn.ToAddr, to)
 				conn.WriteSMTP(250, "Accepted")
@@ -348,7 +363,7 @@ ReadLoop:
 				}
 
 			} else {
-				s.Logger.Println("DATA read error: %v", err)
+				s.Logger.Printf("DATA read error: %v", err)
 			}
 		// Reset the connection
 		// see: https://tools.ietf.org/html/rfc2821#section-4.1.1.5

@@ -34,12 +34,14 @@ func (a *Auth) Handle(c *Conn, args string) error {
 		if len(mech) == 2 {
 			args = mech[1]
 		}
-		if user, err := m.Handle(c, args); err == nil {
-			c.User = user
-			return nil
-		} else {
+
+		user, err := m.Handle(c, args)
+		if err != nil {
 			return err
 		}
+
+		c.User = user
+		return nil
 	}
 
 	return &SMTPError{500, fmt.Errorf("AUTH mechanism %v not available", mech[0])}

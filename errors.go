@@ -4,10 +4,11 @@ import "errors"
 
 // Well-defined errors
 var (
-	ErrAuthFailed    = SMTPError{535, errors.New("Authentication credentials invalid")}
-	ErrAuthCancelled = SMTPError{501, errors.New("Cancelled")}
-	ErrRequiresTLS   = SMTPError{538, errors.New("Encryption required for requested authentication mechanism")}
-	ErrTransaction   = SMTPError{501, errors.New("Transaction unsuccessful")}
+	ErrAlreadyRunning = errors.New("This server is already listening for requests")
+	ErrAuthFailed     = SMTPError{535, errors.New("Authentication credentials invalid")}
+	ErrAuthCancelled  = SMTPError{501, errors.New("Cancelled")}
+	ErrRequiresTLS    = SMTPError{538, errors.New("Encryption required for requested authentication mechanism")}
+	ErrTransaction    = SMTPError{501, errors.New("Transaction unsuccessful")}
 )
 
 // SMTPError is an error + SMTP response code
