@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/mail"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -264,6 +265,8 @@ ReadLoop:
 			return err
 		}
 
+		s.Logger.Printf("%v %v", verb, args)
+
 		// Always check for disabled features first
 		if s.Disabled[verb] {
 			if verb == "EHLO" {
@@ -462,12 +465,21 @@ ReadLoop:
 	return nil
 }
 
+var pathRegex = regexp.MustCompile(`<([^@>]+@[^@>]+)>`)
+
 // GetAddressArg extracts the address value from a supplied SMTP argument
 // for handling MAIL FROM:address@example.com and RCPT TO:address@example.com
+// XXX: don't like this, feels like a hack
 func (s *Server) GetAddressArg(argName string, args string) (*mail.Address, error) {
 	argSplit := strings.SplitN(args, ":", 2)
 	if len(argSplit) == 2 && strings.ToUpper(argSplit[0]) == argName {
-		return mail.ParseAddress(argSplit[1])
+
+		path := pathRegex.FindString(argSplit[1])
+		if path == "" {
+			return nil, fmt.Errorf("couldnt find valid FROM path in %v", argSplit[1])
+		}
+
+		return mail.ParseAddress(path)
 	}
 
 	return nil, fmt.Errorf("Bad arguments")
