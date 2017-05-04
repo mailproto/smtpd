@@ -69,6 +69,8 @@ type Server struct {
 	// TODO: implement better logging with configurable verbosity
 	Logger *log.Logger
 
+	Verbose bool
+
 	// Timeout handlers
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -265,7 +267,9 @@ ReadLoop:
 			return err
 		}
 
-		s.Logger.Printf("%v %v", verb, args)
+		if s.Verbose {
+			s.Logger.Printf("%v %v", verb, args)
+		}
 
 		// Always check for disabled features first
 		if s.Disabled[verb] {
