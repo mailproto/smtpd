@@ -96,6 +96,22 @@ Content-Disposition: attachment; filename="invite.ics"
 
 QkVHSU46VkNBTEVOREFSClZFUlNJT046Mi4wClBST0RJRDotLy9tYWlscHJvdG8vL01haWxQcm90bwpDQUxTQ0FMRTpHUkVHT1JJQU4KQkVHSU46VkVWRU5UCkRUU1RBTVA6MjAxNzAxMTZUMTU0MDAwClVJRDpteWNvb2xldmVudEBtYWlscHJvdG8KCkRUU1RBUlQ7VFpJRD0iQW1lcmljYS9OZXdfWW9yayI6MjAxNzAxMThUMTEwMDAwCkRURU5EO1RaSUQ9IkFtZXJpY2EvTmV3X1lvcmsiOjIwMTcwMTE4VDEyMDAwMApTVU1NQVJZOlNlbmQgYW4gZW1haWwKTE9DQVRJT046VGVzdApFTkQ6VkVWRU5UCkVORDpWQ0FMRU5EQVI=
 --_=test=_bbd1e98aa6c34ef59d8d102a0e795027--`
+
+	emailWithInvalidBody = `From: Sender <sender@example.com>
+Date: Mon, 16 Jan 2017 16:59:33 -0500
+Subject: Invalid Body Message
+MIME-Version: 1.0
+Content-Type: text/html
+To: recipient1@example.com, "Recipient 2" <recipient2@example.com>
+Message-ID: <examplemessage@example.com>
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html>
+<html>
+  <body>
+    Sending bees<br><br>=FG=XX==
+  </body>
+</html>`
 )
 
 func TestPlainHTMLParsing(t *testing.T) {
@@ -301,4 +317,44 @@ END:VCALENDAR`
 		t.Errorf("Wrong attachment, wanted: %v got: %v", expectVCal, string(attachments[0].Body))
 	}
 
+}
+
+func TestInvalidEmailBodyStillPassesToHandler(t *testing.T) {
+
+	msg, err := smtpd.NewMessage([]byte(emailWithInvalidBody), nil, nil)
+
+	if err != nil {
+		t.Error("error creating message", err)
+		return
+	}
+
+	expectTo := []mail.Address{
+		{
+			Name:    "",
+			Address: "recipient1@example.com",
+		},
+		{
+			Name:    "Recipient 2",
+			Address: "recipient2@example.com",
+		},
+	}
+
+	if len(msg.To) < len(expectTo) {
+		t.Errorf("Not enough recipients, want: %v, got: %v", len(expectTo), len(msg.To))
+
+	}
+
+	for i, expect := range expectTo {
+		if i >= len(msg.To) {
+			break
+		}
+		if msg.To[i].Address != expect.Address || msg.To[i].Name != expect.Name {
+			t.Errorf("Wrong recipient %v want: %v, got: %v", i, expect, msg.To[i])
+		}
+	}
+
+	_, err = msg.Parts()
+	if err == nil {
+		t.Error("Expected parts parsing to fail due to invalid body")
+	}
 }

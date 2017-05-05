@@ -33,7 +33,6 @@ type Message struct {
 	From    *mail.Address
 	Header  mail.Header
 	Subject string
-	Body    []*Part
 	RawBody []byte
 
 	messageID    string
@@ -127,9 +126,14 @@ func (m *Message) Attachments() ([]*Part, error) {
 		return nil, err
 	}
 
+	parts, err := m.Parts()
+	if err != nil {
+		return nil, err
+	}
+
 	var attachments []*Part
 	if mediaType == "multipart/mixed" {
-		for _, part := range m.Body {
+		for _, part := range parts {
 			mediaType, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
 			if err != nil {
 				return nil, err
@@ -152,17 +156,22 @@ func (m *Message) FindBody(contentType string) ([]byte, error) {
 		return nil, err
 	}
 
+	parts, err := m.Parts()
+	if err != nil {
+		return nil, err
+	}
+
 	var alternatives []*Part
 	switch mediaType {
 	case contentType:
-		if len(m.Body) > 0 {
-			return m.Body[0].Body, nil
+		if len(parts) > 0 {
+			return parts[0].Body, nil
 		}
 		return nil, fmt.Errorf("%v found, but no data in body", contentType)
 	case "multipart/alternative":
-		alternatives = m.Body
+		alternatives = parts
 	default:
-		if alt := findTypeInParts("multipart/alternative", m.Body); alt != nil {
+		if alt := findTypeInParts("multipart/alternative", parts); alt != nil {
 			alternatives = alt.Children
 		}
 	}
@@ -256,21 +265,14 @@ func parseContent(header textproto.MIMEHeader, content io.Reader) ([]*Part, erro
 	return parts, nil
 }
 
-// parseBody unwraps the body io.Reader into a set of *Part structs
-func parseBody(m *mail.Message) ([]byte, []*Part, error) {
-
-	mbody, err := ioutil.ReadAll(m.Body)
+// Parts breaks a message body into its mime parts
+func (m *Message) Parts() ([]*Part, error) {
+	parts, err := parseContent(textproto.MIMEHeader(m.Header), bytes.NewBuffer(m.RawBody))
 	if err != nil {
-		return []byte{}, []*Part{}, err
-	}
-	buf := bytes.NewBuffer(mbody)
-
-	parts, err := parseContent(textproto.MIMEHeader(m.Header), buf)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return mbody, parts, nil
+	return parts, nil
 }
 
 // NewMessage creates a Message from a data blob and a recipients list
@@ -299,8 +301,8 @@ func NewMessage(data []byte, rcpt []*mail.Address, logger *log.Logger) (*Message
 		}
 	}
 
-	raw, parts, err := parseBody(m)
-	if err != nil {
+	raw, err := ioutil.ReadAll(m.Body)
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
@@ -310,7 +312,6 @@ func NewMessage(data []byte, rcpt []*mail.Address, logger *log.Logger) (*Message
 		From:    from[0],
 		Header:  m.Header,
 		Subject: m.Header.Get("subject"),
-		Body:    parts,
 		RawBody: raw,
 		Logger:  logger,
 	}, nil
