@@ -123,3 +123,26 @@ func TestSMTPServerTimeout(t *testing.T) {
 	}
 
 }
+
+func TestSMTPServerNoTLS(t *testing.T) {
+
+	recorder := &MessageRecorder{}
+	server := smtpd.NewServer(recorder.Record)
+
+	go server.ListenAndServe("localhost:0")
+	defer server.Close()
+
+	WaitUntilAlive(server)
+
+	// Connect to the remote SMTP server.
+	c, err := smtp.Dial(server.Address())
+	if err != nil {
+		t.Errorf("Should be able to dial localhost: %v", err)
+	}
+
+	err = c.StartTLS(nil)
+	if err == nil {
+		t.Error("Server should return a failure for a TLS request when there is no config available")
+	}
+
+}

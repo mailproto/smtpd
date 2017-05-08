@@ -410,6 +410,12 @@ ReadLoop:
 
 		// https://tools.ietf.org/html/rfc2487
 		case "STARTTLS":
+
+			if s.TLSConfig == nil {
+				conn.WriteSMTP(454, "TLS is not available on this server")
+				continue
+			}
+
 			conn.WriteSMTP(220, "Ready to start TLS")
 
 			// upgrade to TLS
