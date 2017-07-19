@@ -34,6 +34,7 @@ type Message struct {
 	Header  mail.Header
 	Subject string
 	RawBody []byte
+	Source  []byte
 
 	messageID    string
 	genMessageID sync.Once
@@ -313,6 +314,7 @@ func NewMessage(data []byte, rcpt []*mail.Address, logger *log.Logger) (*Message
 		Header:  m.Header,
 		Subject: m.Header.Get("subject"),
 		RawBody: raw,
+		Source:  data,
 		Logger:  logger,
 	}, nil
 
