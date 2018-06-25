@@ -283,9 +283,11 @@ func NewMessage(data []byte, rcpt []*mail.Address, logger *log.Logger) (*Message
 		return nil, err
 	}
 
-	// TODO: This isn't accurate, the To field should be all the values from RCPT TO:
+	// this is only used to differentiate normal To: recipients from BCC:
+	// recipients in tests. The To: header explicitly not required by RFC 2822
+	// 3.6.
 	to, err := m.Header.AddressList("To")
-	if err != nil {
+	if err != nil && err != mail.ErrHeaderNotPresent {
 		return nil, err
 	}
 
