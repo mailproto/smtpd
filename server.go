@@ -362,11 +362,11 @@ ReadLoop:
 					} else if serr, ok := err.(SMTPError); ok {
 						conn.WriteSMTP(serr.Code, serr.Error())
 					} else {
-						conn.WriteSMTP(554, fmt.Sprintf("Error: I blame me. %v", err))
+						conn.WriteSMTP(554, fmt.Sprintf("Server error while processing SMTP message. %v", err))
 					}
 
 				} else {
-					conn.WriteSMTP(554, fmt.Sprintf("Error: I blame you. %v", err))
+					conn.WriteSMTP(554, fmt.Sprintf("Error while reading SMTP message data. %v", err))
 				}
 
 			} else {
